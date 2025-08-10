@@ -1,12 +1,19 @@
-import { Bell, UserCircle } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+
+const routeTitles = {
+  '/': 'Home',
+  '/upload-request': 'Nueva evaluación de riesgo',
+  '/dashboard': 'Dashboard de riesgo',
+  '/simulacion': 'Simulador de escenarios'
+};
 
 const Navbar = () => {
+  const location = useLocation();
+  const title = routeTitles[location.pathname] || 'AlfaTech';
+
   return (
-    <header className="flex justify-end items-center p-4 bg-white border-b">
-      <div className="flex items-center space-x-4">
-        <Bell className="text-gray-600" />
-        <UserCircle className="text-gray-600" />
-      </div>
+    <header className="flex justify-start items-center p-3 bg-gray-800 border-b border-gray-700">
+      <h1 className="text-xl text-white font-semibold ml-4">{title}</h1>
     </header>
   );
 };

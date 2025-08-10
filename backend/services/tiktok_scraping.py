@@ -16,6 +16,28 @@ import os
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def get_tiktok_stats(business_name):
+    """
+        The `get_tiktok_stats` function retrieves Tiktok statistics, such as the number of followers, 
+        following, and likes, for a given business name.
+        
+        :param business_name: 
+            Takes a business name as a parameter and retrieves that user's Tiktok statistics.
+        :return: 
+            Dictionary with information about a specific company's Tiktok statistics.
+    """
+    scraper = TikTokScraper(use_selenium=True, headless=True)
+    try:
+        stats = scraper.get_scraping_tiktok_stats(business_name)
+        
+        return stats
+        
+    except Exception as e:
+        print(f"Ocurrió un error en la ejecución principal: {e}")
+    finally:
+        scraper.close()
+
 class TikTokScraper:
     def __init__(self, use_selenium=True, headless=True):
         self.use_selenium = use_selenium
@@ -87,21 +109,21 @@ class TikTokScraper:
                 continue
         return None
 
-    def get_tiktok_stats_selenium(self, username):
+    def get_tiktok_stats_selenium(self, business_name):
         if not self.driver:
             logger.error("Driver de Selenium no está configurado.")
             return None
 
-        username = username.replace('@', '').strip()
+        business_name = business_name.replace('@', '').strip()
         base_url = os.getenv("TIKTOK_BASE_URL", "https://www.tiktok.com")
-        url = f"{base_url}/@{username}"
+        url = f"{base_url}/@{business_name}"
         logger.info(f"Accediendo a: {url}")
 
         try:
             self.driver.get(url)
             time.sleep(5)
 
-            stats = {'username': username, 'url': url, 'found': False}
+            stats = {}
 
             followers_count = self._find_element_text([
                 "//strong[@data-e2e='followers-count']",
@@ -123,20 +145,20 @@ class TikTokScraper:
             ])
             if likes_count:
                 stats['likes'] = self._parse_count(likes_count)
-            
-            stats['display_name'] = self._find_element_text(["//h1[@data-e2e='user-title']"])
-            stats['bio'] = self._find_element_text(["//h2[@data-e2e='user-bio']"])
+        
 
-            if any(key in stats for key in ['followers', 'following', 'likes']):
-                stats['found'] = True
-            else:
+            if not stats:
                 stats.update(self._extract_from_metadata())
 
-            return stats
+            return {
+                "source": "tiktok",
+                "business_name": business_name,
+                "stats": stats
+            }
 
         except Exception as e:
-            logger.error(f"Error general en Selenium para @{username}: {e}")
-            return {'username': username, 'error': str(e), 'found': False}
+            logger.error(f"Error general en Selenium para @{business_name}: {e}")
+            return {'business_name': business_name, 'error': str(e)}
 
     def _extract_from_metadata(self):
         try:
@@ -185,56 +207,16 @@ class TikTokScraper:
         except ValueError:
             return count_str
 
-    def get_tiktok_stats(self, username):
+    def get_scraping_tiktok_stats(self, business_name):
         if self.use_selenium and self.driver:
-            return self.get_tiktok_stats_selenium(username)
+            return self.get_tiktok_stats_selenium(business_name)
         else:
-            return {'username': username, 'error': 'Requests method is not reliable.', 'found': False}
+            return {
+                "source": "tiktok",
+                "business_name": business_name,
+                "error": "Could not retrieve TikTok stats."
+            }
 
     def close(self):
         if self.driver:
             self.driver.quit()
-
-def print_stats(stats):
-    """Imprime las estadísticas de forma organizada."""
-    print("\n" + "="*50)
-    print(f"Estadísticas de TikTok - @{stats.get('username', 'N/A')}")
-    print("="*50)
-    
-    if stats.get('found'):
-        print("Perfil encontrado")
-        if 'display_name' in stats and stats['display_name']:
-            print(f"  Nombre: {stats['display_name']}")
-        if 'followers' in stats:
-            print(f"  Seguidores: {stats['followers']:,}")
-        if 'following' in stats:
-            print(f"  Siguiendo: {stats['following']:,}")
-        if 'likes' in stats:
-            print(f"  Likes: {stats['likes']:,}")
-        if 'bio' in stats and stats['bio']:
-            print(f"  Bio: {stats['bio']}")
-    else:
-        print("No se pudieron obtener estadísticas completas.")
-    
-    if 'error' in stats:
-        print(f"Error: {stats['error']}")
-    
-    print(f"URL: {stats.get('url', 'N/A')}")
-
-def main():
-    """Función principal de ejemplo."""
-    USERNAME = 'alfanetecuador'
-    
-    scraper = TikTokScraper(use_selenium=True, headless=True)
-    
-    try:
-        stats = scraper.get_tiktok_stats(USERNAME)
-        if stats:
-            print_stats(stats)
-    except Exception as e:
-        print(f"Ocurrió un error en la ejecución principal: {e}")
-    finally:
-        scraper.close()
-
-if __name__ == "__main__":
-    main()

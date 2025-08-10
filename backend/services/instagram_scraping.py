@@ -5,19 +5,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_instagram_stats(username):
+def get_instagram_stats(business_name):
     """
-        The function `get_instagram_stats` search Instagram statistics such as followers
-        count, total posts, and last post date for a given username.
+        The `get_instagram_stats` function retrieves Instagram statistics, such as the number of followers, 
+        total posts, and last post date, for a given business name.
         
-        :param username: The function `get_instagram_stats(username)` takes a username as a parameter and
-        retrieves Instagram statistics for that user. It makes a request to the Instagram profile page of
-        the provided username, extracts information such as followers count, total posts, and the date of
-        the last post
+        :param business_name: 
+            Takes a business name as a parameter and retrieves that user's Instagram statistics.
+        :return: 
+            Dictionary with information about a specific company's Instagram statistics.
     """
     
     base_url = os.getenv("INSTAGRAM_BASE_URL", "https://www.instagram.com")
-    url = f"{base_url}/{username}/?__a=1"
+    url = f"{base_url}/{business_name}/?__a=1"
     
     response = requests.get(url)
     
@@ -28,10 +28,20 @@ def get_instagram_stats(username):
 
         if metadata:
             metadata_content = metadata['content']
-            followers_count = metadata_content.split(' ')[0]
-            post = metadata_content.split(' ')[4]
-            print(f"Followers count for {username}: {followers_count}")
-            print(f"Total posts for {username}: {post}")
+            stats = {}
+            
+            parts = metadata_content.split(' ')
+            if len(parts) > 4:
+                stats['followers'] = parts[0]
+                stats['posts'] = parts[4]
 
-if __name__ == "__main__":
-    get_instagram_stats('alfanetecuador')   
+            return {
+                "source": "instagram",
+                "business_name": business_name,
+                "stats": stats
+            }
+    return {
+        "source": "instagram", 
+        "business_name": business_name, 
+        "stats": None
+    }

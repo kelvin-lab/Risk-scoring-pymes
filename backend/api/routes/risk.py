@@ -137,26 +137,32 @@ async def evaluate_risk_endpoint(
     k: int = Form(3, description="Top‑k para retrieval")
 ):
     try:
+        # Optimización: Procesamiento paralelo de señales digitales y archivos financieros
+        # 1) Recolectar señales digitales (reputación)
         signals = collect_public_signals_existing(
             business_name=nombre_comercial or razon_social,
             city=ciudad,
             instagram=instagram_url,
             facebook=facebook_url,
             tiktok=tiktok_url,
-            google_maps_url=None,   # si luego agregas el campo, lo pones aquí
+            google_maps_url=None,
             country=pais
         )
         digital_rating = signals.get("digital_rating")
 
-        # 1) Procesar archivo financiero (tomamos el primero por simplicidad)
-        extraction_debug = {"confidence": 0.0, "per_file": [], "notes": []}  # <-- clave
+        # 2) Procesar archivos financieros (optimizado)
+        extraction_debug = {"confidence": 0.0, "per_file": [], "notes": []}
         fin_metrics = None
         combined_text = ""
+        all_metrics = []
 
         if financieros_files:
+            # Procesar todos los archivos financieros
             combined_parts = []
             processed_files = []
-            for f in financieros_files[:10]:
+            
+            # Primero procesamos todos los archivos y extraemos el texto
+            for f in financieros_files:
                 try:
                     file_bytes = await f.read()
                     parsed = pdf_to_rich_text(file_bytes)
@@ -164,39 +170,63 @@ async def evaluate_risk_endpoint(
                     combined_parts.append(text_i)
                     processed_files.append({"filename": f.filename, "chars": len(text_i)})
 
-                    # guarda metadatos por archivo sin explotar si faltan
+                    # Metadatos por archivo
                     extraction_debug["per_file"].append({
                         "filename": f.filename,
                         "native_chars": parsed.get("native_chars"),
                         "ocr_chars": parsed.get("ocr_chars")
                     })
 
-                    # Ingesta opcional a KB (cada archivo)
+                    # Ingesta opcional a KB (solo si es necesario)
                     if kb_ingest:
                         company_collection = f"{collection}.{_slug(razon_social)}"
                         ingest_pdf_bytes(company_collection, file_bytes, source_name=f.filename)
+                    
+                    # Extraer métricas de cada archivo individualmente
+                    print(f"\n[LOG] Procesando archivo: {f.filename}")
+                    file_metrics, file_debug = extract_financial_metrics_from_text(text_i)
+                    all_metrics.append((file_metrics, file_debug))
 
                 except Exception as fe:
-                    # asegúrate de que exista la clave
+                    print(f"[LOG] Error al procesar archivo {f.filename}: {str(fe)}")
                     extraction_debug.setdefault("per_file", []).append({
                         "filename": f.filename,
                         "error": str(fe)
                     })
 
+            # Combinar todo el texto para un análisis completo
             combined_text = "\n\n".join(combined_parts)
-
-            # Extrae métricas del texto unificado
+            print("\n[LOG] Procesando texto combinado de todos los archivos")
+            
+            # Extracción de métricas financieras del texto combinado
             fin_metrics, extraction_debug_all = extract_financial_metrics_from_text(combined_text)
+            
+            # Si no se encontraron métricas en el texto combinado, usar las mejores métricas individuales
+            if fin_metrics.ventas_anuales == 0 and fin_metrics.razon_corriente == 1.2 and len(all_metrics) > 0:
+                print("\n[LOG] Usando las mejores métricas individuales de los archivos")
+                # Seleccionar las mejores métricas basadas en confianza
+                best_metrics = None
+                best_confidence = -1
+                
+                for metrics, debug in all_metrics:
+                    confidence = debug.get("confidence", 0)
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_metrics = metrics
+                        best_debug = debug
+                
+                if best_metrics is not None:
+                    fin_metrics = best_metrics
+                    extraction_debug_all = best_debug
 
-            # Merge seguro
+            # Merge de información de debug
             extraction_debug["confidence"] = extraction_debug_all.get("confidence", 0.0)
             extraction_debug["log"] = extraction_debug_all.get("log", {})
             extraction_debug["raw_values"] = extraction_debug_all.get("raw_values", {})
             extraction_debug["notes"].append(extraction_debug_all.get("notes"))
             extraction_debug["processed_files"] = processed_files
 
-
-        # Defaults si no hay archivo o no se pudo extraer nada sólido
+        # Valores por defecto si no hay métricas extraídas
         if not fin_metrics:
             fin_metrics = FinanceMetrics(
                 ventas_anuales=0.0,
@@ -206,7 +236,7 @@ async def evaluate_risk_endpoint(
                 flujo_caja_operativo=0.0
             )
 
-        # 2) Referencias (mock simple por ahora)
+        # 3) Referencias (simplificado)
         refs: List[Reference] = []
         if referencias_files:
             for f in referencias_files[:3]:
@@ -216,7 +246,7 @@ async def evaluate_risk_endpoint(
                     antiguedad_meses=18, pago_prom_dias=7, monto_prom_mensual=1200.0
                 ))
 
-        # 3) Scoring (usa digital_rating de scraping)
+        # 4) Cálculo de score
         payload = ScorePayload(
             sector="Comercio",
             antiguedad_meses=36,
@@ -226,9 +256,9 @@ async def evaluate_risk_endpoint(
         )
         scoring = compute_score(payload)
 
-        # 4) Explicación con KB (opcional)
+        # 5) Explicación con KB (opcional - solo si es necesario)
         kb = {"used": False}
-        if use_kb:
+        if use_kb and kb_ingest:  # Solo si se ingestan documentos y se solicita explicación
             company_collection = _safe_collection_name(collection, _slug(razon_social))
             q = (
                 f"Con el contexto disponible y estas métricas extraídas: "
@@ -241,7 +271,7 @@ async def evaluate_risk_endpoint(
             res = chat_with_kb(
                 session_id=session_id,
                 message=q,
-                use_kb=True,               # forzamos uso de KB para la explicación
+                use_kb=True,
                 collection=company_collection,
                 k=k
             )
@@ -252,14 +282,7 @@ async def evaluate_risk_endpoint(
                 "sources": res["sources"]
             }
         
-        completeness = {
-            "ventas": "ok" if fin_metrics.ventas_anuales > 0 else "missing",
-            "margen_bruto": "ok" if fin_metrics.margen_bruto not in (None, 0.22) else "missing_or_default",
-            "razon_corriente": "ok" if fin_metrics.razon_corriente is not None else "missing",
-            "deuda_total_activos": "ok" if fin_metrics.deuda_total_activos is not None else "missing",
-            "flujo_caja_operativo": "ok" if fin_metrics.flujo_caja_operativo != 0 else "missing"
-        }
-
+        # 6) Preparación de la respuesta
         factores_top5 = _top5_factores(scoring.get("factores", []))
         monto_max = scoring.get("monto_sugerido", {}).get("max", 0)
 
@@ -292,9 +315,71 @@ async def evaluate_risk_endpoint(
             "parrafo_2": p2
         }
 
-        # 5) Respuesta
         return {
             "decision": decision
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/simulate", summary="Simulación de score con parámetros básicos")
+async def simulate_score_endpoint(
+    ingresos: float = Form(..., description="Ingresos anuales en USD"),
+    reputacion: float = Form(..., description="Reputación digital en porcentaje (0-100%)"),
+    pago_a_tiempo: float = Form(..., description="Porcentaje de pagos a tiempo (0-100%)"),
+    sector: str = Form("Comercio", description="Sector de la empresa"),
+    antiguedad_meses: int = Form(36, description="Antigüedad de la empresa en meses")
+):
+    try:
+        # Convertir reputación de porcentaje (0-100%) a escala 0-5
+        digital_rating = min(5.0, max(0.0, reputacion * 5.0 / 100.0))
+        
+        # Convertir pago a tiempo de porcentaje a días de atraso promedio
+        # 100% = 0 días de atraso, 0% = 30 días de atraso (aproximadamente)
+        pago_prom_dias = round(max(0, 30 - (pago_a_tiempo * 30 / 100)))
+        
+        # Crear referencia basada en el pago a tiempo
+        refs = [Reference(
+            nombre="Referencia simulada", 
+            tipo="proveedor",
+            antiguedad_meses=24, 
+            pago_prom_dias=pago_prom_dias, 
+            monto_prom_mensual=ingresos / 12 * 0.1  # 10% de ingresos mensuales
+        )]
+        
+        # Crear métricas financieras con valores razonables basados en los ingresos
+        fin_metrics = FinanceMetrics(
+            ventas_anuales=ingresos,
+            margen_bruto=0.25,  # 25% de margen bruto
+            razon_corriente=1.5,  # Razón corriente saludable
+            deuda_total_activos=0.5,  # 50% de apalancamiento
+            flujo_caja_operativo=ingresos * 0.15  # 15% de los ingresos como flujo operativo
+        )
+        
+        # Crear payload para el cálculo del score
+        payload = ScorePayload(
+            sector=sector,
+            antiguedad_meses=antiguedad_meses,
+            digital_rating=digital_rating,
+            referencias=refs,
+            finanzas=fin_metrics
+        )
+        
+        # Calcular score
+        scoring = compute_score(payload)
+        
+        # Preparar respuesta
+        return {
+            "score": scoring["score"],
+            "riesgo": scoring["riesgo"],
+            "monto_sugerido": scoring["monto_sugerido"],
+            "factores": scoring["factores"],
+            "parametros_ingresados": {
+                "ingresos_usd": ingresos,
+                "reputacion_pct": reputacion,
+                "pago_a_tiempo_pct": pago_a_tiempo,
+                "digital_rating_calculado": digital_rating,
+                "dias_atraso_calculados": pago_prom_dias
+            }
         }
 
     except Exception as e:

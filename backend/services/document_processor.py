@@ -7,66 +7,55 @@ import fitz  # PyMuPDF
 # --- Umbrales ajustables ---
 MIN_CHARS_PER_PAGE = 80         # si la extracción nativa de una página trae <80 chars => se intenta OCR
 ZOOM = 2.0                      # 2.0 ~ 288 dpi aprox (buena para OCR)
-MAX_OCR_PAGES_AUTO = 80         # seguridad: no intentes OCR en PDFs gigantescos
+MAX_OCR_PAGES_AUTO = 20         # seguridad: limitar OCR en PDFs grandes para optimizar velocidad
 
 def _page_to_png_bytes(page) -> bytes:
     mat = fitz.Matrix(ZOOM, ZOOM)
     pix = page.get_pixmap(matrix=mat, alpha=False)
     return pix.tobytes("png")
 
-def _try_pytesseract_ocr(img_bytes: bytes) -> Optional[str]:
-    # OCR local si está instalado; si no, devolvemos None para que otra ruta intente
-    try:
-        import pytesseract
-        from PIL import Image
-        img = Image.open(io.BytesIO(img_bytes))
-        text = pytesseract.image_to_string(img, lang=os.getenv("TESSERACT_LANG", "spa+eng"))
-        return text.strip()
-    except Exception:
-        return None
-
 def _try_openai_vision_ocr(img_bytes: bytes) -> Optional[str]:
-    """
-    OCR vía tu modelo de visión (usa la función ya hecha en ai_analyzer).
-    Para evitar import circular, hacemos import LAZY aquí.
-    """
+    # OCR con OpenAI Vision (más potente pero más caro)
     try:
-        from services.ai_analyzer import analyze_image_bytes  # import diferido
-        # Prompt corto estilo OCR
-        prompt = (
-            "Eres un OCR. Extrae solo TEXTO que veas en la imagen, "
-            "respetando saltos de línea y sin inventar nada."
+        import base64
+        from openai import OpenAI
+        client = OpenAI()
+        
+        # Convertir bytes a base64
+        base64_image = base64.b64encode(img_bytes).decode('utf-8')
+        
+        response = client.chat.completions.create(
+            model="gpt-4-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extrae TODO el texto visible en esta imagen. Incluye números, tablas y cualquier texto que veas. Devuelve SOLO el texto extraído, sin comentarios ni explicaciones adicionales."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                    ]
+                }
+            ],
+            max_tokens=1000
         )
-        return analyze_image_bytes(img_bytes, prompt=prompt)
-    except Exception:
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error en OpenAI Vision OCR: {e}")
         return None
 
 def _ocr_image(img_bytes: bytes) -> str:
-    """
-    Orquesta OCR: primero pytesseract (rápido/local). Si falla o no está, usa OpenAI visión.
-    """
-    text = _try_pytesseract_ocr(img_bytes)
-    if text and len(text.strip()) >= 2:
-        return text
+    """Realiza OCR usando OpenAI Vision directamente."""
+    # Usamos directamente OpenAI Vision para mejor precisión
     text = _try_openai_vision_ocr(img_bytes)
     return text or ""
 
 def pdf_to_rich_text(pdf_bytes: bytes, force_ocr: bool = False) -> Dict[str, Any]:
     """
-    Extrae texto de un PDF:
+    Extrae texto de un PDF - OPTIMIZADO para velocidad y extracción de campos financieros:
     - Modo normal: usa extracción nativa de PyMuPDF.
     - Auto-OCR por página: si una página tiene muy poco texto nativo (< MIN_CHARS_PER_PAGE),
       la renderiza a imagen y le aplica OCR (sólo esa página).
     - Si `force_ocr=True`, hace OCR a TODAS las páginas (útil para PDFs claramente escaneados).
-    Devuelve:
-      {
-        "combined_text": str,
-        "native_chars": int,
-        "ocr_chars": int,
-        "pages": [
-          {"index": i, "native_chars": n, "ocr_used": bool, "ocr_chars": m}
-        ]
-      }
+    - OPTIMIZACIÓN: Solo procesa las primeras 5 páginas para documentos financieros.
     """
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     combined_parts: List[str] = []
@@ -76,8 +65,13 @@ def pdf_to_rich_text(pdf_bytes: bytes, force_ocr: bool = False) -> Dict[str, Any
 
     # Si el PDF es enorme, limitar OCR automático
     allow_auto_ocr = (doc.page_count <= MAX_OCR_PAGES_AUTO)
+    
+    # OPTIMIZACIÓN: Solo procesar las primeras 5 páginas para documentos financieros
+    # La mayoría de los campos financieros relevantes están en las primeras páginas
+    max_pages = min(5, doc.page_count)
 
-    for i, page in enumerate(doc):
+    for i in range(max_pages):
+        page = doc[i]
         # 1) extracción nativa
         native_text = page.get_text("text") or ""
         native_chars = len(native_text)
@@ -97,7 +91,7 @@ def pdf_to_rich_text(pdf_bytes: bytes, force_ocr: bool = False) -> Dict[str, Any
                 ocr_text = ""
 
         # 3) escoger mejor resultado para la página
-        #    - si hay OCR y es “mejor” que lo nativo raquítico, usa OCR
+        #    - si hay OCR y es "mejor" que lo nativo raquítico, usa OCR
         #    - si extracción nativa ya es buena, mantenla
         page_text = native_text
         if ocr_used and (len(ocr_text) > max(native_chars, MIN_CHARS_PER_PAGE)):
@@ -126,6 +120,8 @@ def pdf_to_rich_text(pdf_bytes: bytes, force_ocr: bool = False) -> Dict[str, Any
             "force_ocr": force_ocr,
             "min_chars_per_page": MIN_CHARS_PER_PAGE,
             "zoom": ZOOM,
-            "auto_ocr_enabled": allow_auto_ocr
+            "auto_ocr_enabled": allow_auto_ocr,
+            "optimized": True,
+            "max_pages_processed": max_pages
         }
     }

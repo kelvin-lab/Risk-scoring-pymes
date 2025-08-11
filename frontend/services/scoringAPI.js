@@ -8,7 +8,6 @@ export const uploadRequest = (formData) => {
 };
 
 export const getScoringResult = () => {
-  //Formato base para el scoring - Definido el formato del payload se adaptará esta solucion
   return {
     riskScore: 'Medio',
     creditSuggested: 8000,
@@ -16,7 +15,7 @@ export const getScoringResult = () => {
     industryComparison: [
       { name: 'Sector A', uv: 4000, pv: 2400, amt: 2400 },
       { name: 'Sector B', uv: 3000, pv: 1398, amt: 2210 },
-      { name: 'Tu Empresa', uv: 2000, pv: 9800, amt: 2290 },
+      { name: 'Tu empresa', uv: 2000, pv: 9800, amt: 2290 },
     ],
     riskFactors: [
         { subject: 'Ventas', A: 120, B: 110, fullMark: 150 },

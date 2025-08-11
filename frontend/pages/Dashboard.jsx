@@ -11,6 +11,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Radar } from 'react-chartjs-2';
+import NoDataPopup from '../components/NoDataPopup';
 
 ChartJS.register(
   RadialLinearScale,
@@ -23,10 +24,39 @@ ChartJS.register(
 
 const Dashboard = () => {
   const [scoringData, setScoringData] = useState(null);
+  const [companyName, setCompanyName] = useState('');
+  const [noData, setNoData] = useState(false);
 
   useEffect(() => {
-    const data = getScoringResult();
-    setScoringData(data);
+    const dataString = sessionStorage.getItem('scoringResult');
+    const name = sessionStorage.getItem('companyName');
+    if (name) {
+      setCompanyName(name);
+    }
+
+    if (dataString) {
+      const rawData = JSON.parse(dataString);
+      if (rawData.decision) { // This is the real data from backend
+        sessionStorage.setItem('initialStatistics', JSON.stringify(rawData.decision.estadisticas));
+
+        const transformedData = {
+          riskScore: rawData.decision.nivel_riesgo,
+          creditSuggested: rawData.decision.credito_sugerido.monto,
+          factors: rawData.decision.factores_clave_riesgo.top_5[0],
+          riskFactors: Object.keys(rawData.decision.estadisticas).map(key => ({
+            subject: key.charAt(0).toUpperCase() + key.slice(1),
+            A: rawData.decision.estadisticas[key].value,
+            fullMark: rawData.decision.estadisticas[key].max,
+          })),
+          summary: `${rawData.decision.resumen.parrafo_1}\n\n${rawData.decision.resumen.parrafo_2}`
+        };
+        setScoringData(transformedData);
+      } else { // This is mock data or already transformed data
+        setScoringData(rawData);
+      }
+    } else { // No data in session storage
+      setNoData(true);
+    }
   }, []);
 
   const getRiskColor = (risk) => {
@@ -46,19 +76,12 @@ const Dashboard = () => {
     labels: scoringData?.riskFactors.map(f => f.subject) || [],
     datasets: [
       {
-        label: 'Tu empresa',
+        label: companyName,
         data: scoringData?.riskFactors.map(f => f.A) || [],
         backgroundColor: 'rgba(54, 162, 235, 0.2)',
         borderColor: 'rgba(54, 162, 235, 1)',
         borderWidth: 2,
-      },
-      {
-        label: 'Promedio del sector',
-        data: scoringData?.riskFactors.map(f => f.B) || [],
-        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-        borderColor: 'rgba(255, 99, 132, 1)',
-        borderWidth: 2,
-      },
+      }
     ],
   };
 
@@ -67,31 +90,36 @@ const Dashboard = () => {
     scales: {
       r: {
         angleLines: {
-          color: 'rgba(255, 255, 255, 0.2)', // Color of lines from center to labels
+          color: 'rgba(255, 255, 255, 0.2)',
         },
         grid: {
-          color: 'rgba(255, 255, 255, 0.2)', // Color of circular grid lines
+          color: 'rgba(255, 255, 255, 0.2)',
         },
         pointLabels: {
-          color: '#E5E7EB', // Color of labels around the chart (Ventas, Reputación, etc.)
+          color: '#E5E7EB',
           font: {
             size: 12,
           }
         },
         ticks: {
-          color: '#9CA3AF', // Color of ticks on the scale (the numbers)
+          color: '#9CA3AF',
           backdropColor: 'transparent',
         },
+        max: scoringData ? Math.max(...scoringData.riskFactors.map(f => f.fullMark)) : 150,
       },
     },
     plugins: {
       legend: {
         labels: {
-          color: '#E5E7EB', // Color of legend text (Tu Empresa, Promedio del Sector)
+          color: '#E5E7EB',
         },
       },
     },
   };
+
+  if (noData) {
+    return <NoDataPopup message="No se han cargado datos para el análisis. Por favor, sube un archivo para comenzar." to="/upload-request" buttonText="Ir a Nueva evaluación" />;
+  }
 
   if (!scoringData) {
     return <div className="text-center text-white">Cargando datos del dashboard...</div>;
@@ -102,7 +130,7 @@ const Dashboard = () => {
       {/* Top Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="md:col-span-2">
-          <h1 className="text-4xl font-bold">Nombre de la empresa</h1>
+          <h1 className="text-4xl font-bold">{companyName}</h1>
           <p className="text-xl text-gray-400">Recomendación de crédito y análisis</p>
         </div>
         <div className="flex items-center justify-end space-x-4">
@@ -136,7 +164,7 @@ const Dashboard = () => {
             </div>
              <div>
                 <h3 className="text-lg font-semibold text-gray-300">Resumen del perfil</h3>
-                <p className="text-gray-400 mt-1">Análisis basado en el comportamiento de la industria, referencias y datos financieros para determinar la capacidad de pago y el riesgo asociado.</p>
+                <p className="text-gray-400 mt-1 text-justify whitespace-pre-line">{scoringData.summary}</p>
             </div>
         </div>
 
@@ -153,4 +181,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-

@@ -334,6 +334,20 @@ async def evaluate_risk_endpoint(
             for k in valores_maximos_ref.keys()
         }
 
+        top5 = llm_out.get("top_5", [])
+
+        # Normalización a lista plana de strings
+        if isinstance(top5, str):
+            # separa por saltos de línea o comas, limpia bullets
+            top5 = [s.strip(" -•\t") for s in re.split(r"[\n,]+", top5) if s.strip()]
+        elif isinstance(top5, dict):
+            top5 = list(top5.values())
+        elif top5 and isinstance(top5[0], list):
+            # si ya viene [[...]], toma la primera
+            top5 = top5[0]
+        
+        top5 = top5[:5]
+
         decision = {
             "empresa": {"razon_social": razon_social, "nombre_comercial": nombre_comercial},
             "credito_sugerido": {
@@ -341,9 +355,9 @@ async def evaluate_risk_endpoint(
                 "moneda": "USD"
             },
             "estadisticas": estadisticas,
-            "riesgo_interno": scoring.get("riesgo"),
-            "factores_clave_riesgo":{
-                "top_5": llm_out.get("top_5", []),               
+            "nivel_riesgo": scoring.get("riesgo"),
+            "factores_clave_riesgo": {
+                "top_5": [top5]   
             },
             "resumen": llm_out.get("resumen", {
                 "parrafo_1": "", "parrafo_2": ""

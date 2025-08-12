@@ -370,66 +370,89 @@ async def evaluate_risk_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/simulate", summary="Simulación de score con parámetros básicos")
+@router.post("/simulate", summary="Simulación de score con 3 parámetros")
 async def simulate_score_endpoint(
     ingresos: float = Form(..., description="Ingresos anuales en USD"),
-    reputacion: float = Form(..., description="Reputación digital en porcentaje (0-100%)"),
-    pago_a_tiempo: float = Form(..., description="Porcentaje de pagos a tiempo (0-100%)"),
-    sector: str = Form("Comercio", description="Sector de la empresa"),
-    antiguedad_meses: int = Form(36, description="Antigüedad de la empresa en meses")
+    reputacion: float = Form(..., description="Reputación digital en % (0-100)"),
+    pago: float = Form(..., description="Pagos a tiempo en % (0-100)")
 ):
     try:
-        # Convertir reputación de porcentaje (0-100%) a escala 0-5
+        # --- 1) Normalizaciones a las que ya venías llegando ---
         digital_rating = min(5.0, max(0.0, reputacion * 5.0 / 100.0))
-        
-        # Convertir pago a tiempo de porcentaje a días de atraso promedio
-        # 100% = 0 días de atraso, 0% = 30 días de atraso (aproximadamente)
-        pago_prom_dias = round(max(0, 30 - (pago_a_tiempo * 30 / 100)))
-        
-        # Crear referencia basada en el pago a tiempo
+        pago_prom_dias = round(max(0, 30 - (pago * 30 / 100)))
+
         refs = [Reference(
-            nombre="Referencia simulada", 
+            nombre="Referencia simulada",
             tipo="proveedor",
-            antiguedad_meses=24, 
-            pago_prom_dias=pago_prom_dias, 
-            monto_prom_mensual=ingresos / 12 * 0.1  # 10% de ingresos mensuales
+            antiguedad_meses=24,
+            pago_prom_dias=pago_prom_dias,
+            monto_prom_mensual=ingresos / 12 * 0.10
         )]
-        
-        # Crear métricas financieras con valores razonables basados en los ingresos
-        fin_metrics = FinanceMetrics(
+
+        fin = FinanceMetrics(
             ventas_anuales=ingresos,
-            margen_bruto=0.25,  # 25% de margen bruto
-            razon_corriente=1.5,  # Razón corriente saludable
-            deuda_total_activos=0.5,  # 50% de apalancamiento
-            flujo_caja_operativo=ingresos * 0.15  # 15% de los ingresos como flujo operativo
+            margen_bruto=0.25,
+            razon_corriente=1.5,
+            deuda_total_activos=0.50,
+            flujo_caja_operativo=ingresos * 0.15
         )
-        
-        # Crear payload para el cálculo del score
+
         payload = ScorePayload(
-            sector=sector,
-            antiguedad_meses=antiguedad_meses,
+            sector="Comercio",
+            antiguedad_meses=36,
             digital_rating=digital_rating,
             referencias=refs,
-            finanzas=fin_metrics
+            finanzas=fin
         )
-        
-        # Calcular score
         scoring = compute_score(payload)
-        
-        # Preparar respuesta
-        return {
-            "score": scoring["score"],
-            "riesgo": scoring["riesgo"],
-            "monto_sugerido": scoring["monto_sugerido"],
-            "factores": scoring["factores"],
-            "parametros_ingresados": {
-                "ingresos_usd": ingresos,
-                "reputacion_pct": reputacion,
-                "pago_a_tiempo_pct": pago_a_tiempo,
-                "digital_rating_calculado": digital_rating,
-                "dias_atraso_calculados": pago_prom_dias
+
+        # --- 2) “Estadísticas” en el formato que pides ---
+        # Nota: son proxies simples y consistentes. Ajusta si tienes reglas propias.
+        activos = max(0.0, ingresos / 2.0)       # sup. rotación de activos ≈ 2x
+        pasivos = activos * fin.deuda_total_activos
+        deudas  = pasivos                          # si necesitas solo obligaciones financieras, ajusta aquí
+
+        estadisticas = {
+            "ventitas": {   # si fue un typo y debería ser "ventas", cámbialo aquí
+                "value": round(fin.ventas_anuales, 2),
+                "max":   round(fin.ventas_anuales * 1.20, 2)  # escenario estirado +20%
+            },
+            "deudas": {
+                "value": round(deudas, 2),
+                "max":   round(activos * 0.60, 2)             # tope prudencial de pasivo/activos 60%
+            },
+            "activos": {
+                "value": round(activos, 2),
+                "max":   round(activos * 1.10, 2)             # escenario +10%
+            },
+            "pasivos": {
+                "value": round(pasivos, 2),
+                "max":   round(activos * 0.60, 2)
+            },
+            "Liquidez": {
+                "value": round(fin.razon_corriente, 2),
+                "max":   2.0                                  # benchmark “bueno” para RC
             }
         }
+
+        # --- 3) Nivel de riesgo en texto (del score ya calculado) ---
+        nivel_riesgo = scoring["riesgo"].lower()
+
+        # --- 4) Respuesta final SOLO con los campos de tu imagen + eco de inputs ---
+        return {
+            "estadisticas": estadisticas,
+            "nivel_riesgo": nivel_riesgo,
+            "inputs": {
+                "ingresos": ingresos,
+                "reputacion": reputacion,  # %
+                "pago": pago               # %
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

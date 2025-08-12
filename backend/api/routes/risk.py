@@ -8,6 +8,7 @@ from services.scoring_service import FinanceMetrics, Reference, ScorePayload, co
 from services.knowledge_base import ingest_pdf_bytes
 from services.ai_analyzer import chat as chat_with_kb
 from services.scraping_service import collect_public_signals_existing
+from services.risk_llm import llm_assessment_with_ai_analyzer
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 
@@ -256,6 +257,9 @@ async def evaluate_risk_endpoint(
         )
         scoring = compute_score(payload)
 
+        session_id = f"risk:{_slug(razon_social)}"
+        company_collection = _safe_collection_name(collection, _slug(razon_social)) if use_kb else None
+
         # 5) Explicación con KB (opcional - solo si es necesario)
         kb = {"used": False}
         if use_kb and kb_ingest:  # Solo si se ingestan documentos y se solicita explicación
@@ -285,34 +289,46 @@ async def evaluate_risk_endpoint(
         # 6) Preparación de la respuesta
         factores_top5 = _top5_factores(scoring.get("factores", []))
         monto_max = scoring.get("monto_sugerido", {}).get("max", 0)
+        llm_out = llm_assessment_with_ai_analyzer(
+            empresa={"razon_social": razon_social, "nombre_comercial": nombre_comercial},
+            finanzas=fin_metrics,
+            signals=signals,
+            scoring=scoring,                 # <--- pásale el score
+            session_id=f"risk:{_slug(razon_social)}",
+            collection=_safe_collection_name(collection, _slug(razon_social)) if use_kb else None,
+            use_kb=use_kb,
+            k=k
+        )
+
+        valores_maximos_ref = {
+            "ventas_anuales": 50_000_000.0,        # máximo esperado anual en USD
+            "margen_bruto": 1.0,                   # 100%
+            "razon_corriente": 5.0,                # ratio máximo razonable
+            "deuda_total_activos": 1.0,            # 100%
+            "flujo_caja_operativo": 10_000_000.0   # máximo esperado anual en USD
+        }
+
+        # --- Extraer métricas con valor y máximo
+        estadisticas = {
+            k: {
+                "value": getattr(fin_metrics, k, None),
+                "max": valores_maximos_ref.get(k)
+            }
+            for k in valores_maximos_ref.keys()
+        }
 
         decision = {
-            "empresa": (empresa := {
-                "razon_social": razon_social,
-                "nombre_comercial": nombre_comercial
-            }),
+            "empresa": {"razon_social": razon_social, "nombre_comercial": nombre_comercial},
             "credito_sugerido": {
-                "monto": monto_max,
+                "monto": scoring.get("monto_sugerido", {}).get("max", 0),
                 "moneda": "USD"
             },
-            "factores_clave_riesgo": {
-                "top_5": factores_top5,
-                "en_que_falla": _en_que_falla(fin_metrics, signals),
-                "motivos_limite_credito": _motivos_limite(fin_metrics, signals, scoring),
-                "focos_analista": _focos_analista(fin_metrics, signals),
-                "razones_monto_actual": [
-                    f"Liquidez (RC={fin_metrics.razon_corriente:.3f})",
-                    f"Apalancamiento (D/A={fin_metrics.deuda_total_activos:.2f})",
-                    f"Ventas detectadas={fin_metrics.ventas_anuales:,.0f}",
-                    f"Flujo operativo={fin_metrics.flujo_caja_operativo:,.0f}",
-                    f"Rating digital={(signals or {}).get('digital_rating', 's/d')}"
-                ]
-            }
-        }
-        p1, p2 = _resumen_corto(empresa, fin_metrics, scoring, signals)
-        decision["resumen"] = {
-            "parrafo_1": p1,
-            "parrafo_2": p2
+            "estadisticas": estadisticas,
+            "riesgo_interno": scoring.get("riesgo"),
+            "top_5": llm_out.get("top_5", []),                 # ← solo del LLM
+            "resumen": llm_out.get("resumen", {                # ← solo del LLM
+                "parrafo_1": "", "parrafo_2": ""
+            })
         }
 
         return {

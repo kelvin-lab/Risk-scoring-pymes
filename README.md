@@ -15,3 +15,58 @@ La solución combina técnicas de **procesamiento de lenguaje natural (NLP)**, *
 - **Visualización de resultados**: dashboard interactivo con métricas financieras, comparativas sectoriales y factores determinantes del puntaje.
 - **Simulación de escenarios**: análisis de impacto de variaciones en ventas, reputación digital o comportamiento de pago sobre el nivel de riesgo.
 
+## Tecnologías Utilizadas
+
+### Frontend
+- **React**: Framework principal para la construcción de la interfaz de usuario
+- **Vite**: Herramienta de construcción y desarrollo que proporciona un entorno de desarrollo más rápido
+- **TailwindCSS**: Framework de CSS utilizado para el diseño y estilizado de la aplicación
+- **Chart.js y React-Chartjs-2**: Bibliotecas para la creación de gráficos y visualizaciones interactivas
+- **Axios**: Cliente HTTP para realizar peticiones al backend
+- **React Icons**: Biblioteca de iconos para la interfaz de usuario
+- **Atropos**: Efectos visuales y animaciones para mejorar la experiencia de usuario
+- **Swiper**: Componente de carrusel para mostrar contenido deslizable
+
+## Instrucciones de Uso
+
+### Requisitos Previos
+- Node.js (versión 18 o superior)
+- npm (incluido con Node.js)
+
+### Configuración del Frontend
+
+1. **Instalación de dependencias**
+   ```bash
+   cd frontend
+   npm install
+    ```
+2. **Configuración de variables de entorno**
+   - Crea un archivo `.env` en el directorio `frontend` basado en `.env.example`
+   - Configura las variables necesarias para la conexión con el backend
+
+3. **Iniciar el servidor de desarrollo**
+   ```bash
+   npm run dev
+   ```
+   La aplicación estará disponible en `http://localhost:5173`
+
+### Uso de la Aplicación
+
+1. **Página de Inicio**
+   - Accede a la página principal para ver una descripción general del servicio
+   - Utiliza el botón "Iniciar evaluación" para comenzar un nuevo análisis
+
+2. **Nueva Evaluación**
+   - Completa el formulario con la información de la empresa
+   - Sube los documentos financieros requeridos (formato PDF)
+   - Proporciona los enlaces a redes sociales para el análisis de reputación digital
+
+3. **Dashboard**
+   - Visualiza el puntaje de riesgo y la recomendación de crédito
+   - Explora los gráficos interactivos con métricas y comparativas
+   - Analiza los factores clave que influyen en la evaluación
+
+4. **Simulador**
+   - Utiliza el simulador para evaluar diferentes escenarios
+   - Ajusta las variables de ingresos, reputación y pagos
+   - Observa cómo los cambios afectan al puntaje de riesgo

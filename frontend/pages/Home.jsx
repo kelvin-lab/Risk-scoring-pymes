@@ -70,7 +70,7 @@ const Home = () => {
           >
             {[...Array(6)].map((_, i) => (
               <SwiperSlide key={i} className="flex items-center justify-center">
-                <img src="../public/LOGO-ALFANET.png" alt={`Cliente ${i + 1}`} className="h-20" />
+                <img src="/LOGO-ALFANET.png" alt={`Cliente ${i + 1}`} className="h-20" />
               </SwiperSlide>
             ))}
           </Swiper>

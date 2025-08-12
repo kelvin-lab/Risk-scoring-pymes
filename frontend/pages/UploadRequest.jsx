@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { uploadRequest } from '../services/scoringAPI';
+import LoadingPopup from '../components/LoadingPopup';
 import { 
     FaInstagram, FaFacebook, FaTiktok, FaBuilding, FaStore, 
     FaCity, FaGlobeAmericas, FaMapMarkerAlt, FaFilePdf, FaFileCsv 
@@ -33,6 +34,7 @@ const UploadRequest = () => {
   const [referenceFiles, setReferenceFiles] = useState([]);
   const [financialFiles, setFinancialFiles] = useState([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSocialLinkChange = (platform, value) => {
@@ -56,21 +58,59 @@ const UploadRequest = () => {
       alert(error);
       return;
     }
-    // ... (formData logic would be updated here)
-    console.log('Submitting...');
-    await uploadRequest(new FormData());
-    navigate('/dashboard');
+
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append('razon_social', razonSocial);
+    formData.append('nombre_comercial', nombreComercial);
+    formData.append('pais', pais);
+    formData.append('ciudad', ciudad);
+    formData.append('direccion', address);
+    formData.append('instagram_url', socialLinks.instagram ? `https://www.instagram.com/${socialLinks.instagram}` : '');
+    formData.append('facebook_url', socialLinks.facebook ? `https://www.facebook.com/${socialLinks.facebook}` : '');
+    formData.append('tiktok_url', socialLinks.tiktok ? `https://www.tiktok.com/@${socialLinks.tiktok}` : '');
+    
+    financialFiles.forEach(file => {
+      formData.append('financieros_files', file);
+    });
+
+    referenceFiles.forEach(file => {
+      formData.append('referencias_files', file);
+    });
+
+    formData.append('kb_ingest', false);
+    formData.append('use_kb', false);
+    formData.append('collection', 'alfatech');
+    formData.append('k', 3);
+
+    try {
+      const response = await uploadRequest(formData);
+      sessionStorage.setItem('scoringResult', JSON.stringify(response));
+      sessionStorage.setItem('companyName', nombreComercial);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+      {loading && <LoadingPopup />}
       <div className="max-w-2xl w-full bg-gray-800 rounded-xl shadow-lg p-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-white mb-2">Formulario de Solicitud</h1>
           <p className="text-gray-400">Completa los datos para iniciar la evaluación de riesgo.</p>
         </div>
 
-        {error && <div className="bg-red-500 text-white p-3 rounded-md mb-6">{error}</div>}
+        {error && (
+        <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+          <h3 className="font-bold">Error</h3>
+          <p>{error.message || 'An unexpected error occurred.'}</p>
+        </div>
+      )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
             <IconInput icon={<FaBuilding />} type="text" placeholder="Razón Social" value={razonSocial} onChange={(e) => setRazonSocial(e.target.value)} required />
@@ -90,16 +130,16 @@ const UploadRequest = () => {
             <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Perfiles de Redes Sociales</label>
                 <div className="space-y-3">
-                    <IconInput icon={<FaInstagram />} placeholder="URL de Instagram" value={socialLinks.instagram} onChange={(e) => handleSocialLinkChange('instagram', e.target.value)} />
-                    <IconInput icon={<FaFacebook />} placeholder="URL de Facebook" value={socialLinks.facebook} onChange={(e) => handleSocialLinkChange('facebook', e.target.value)} />
-                    <IconInput icon={<FaTiktok />} placeholder="URL de TikTok" value={socialLinks.tiktok} onChange={(e) => handleSocialLinkChange('tiktok', e.target.value)} />
+                    <IconInput icon={<FaInstagram />} placeholder="Username de Instagram" value={socialLinks.instagram} onChange={(e) => handleSocialLinkChange('instagram', e.target.value)} />
+                    <IconInput icon={<FaFacebook />} placeholder="Username de Facebook" value={socialLinks.facebook} onChange={(e) => handleSocialLinkChange('facebook', e.target.value)} />
+                    <IconInput icon={<FaTiktok />} placeholder="Username de TikTok" value={socialLinks.tiktok} onChange={(e) => handleSocialLinkChange('tiktok', e.target.value)} />
                 </div>
             </div>
 
+            <FileInput icon={<FaFileCsv />} label="Archivo Financiero (hasta 3 archivos PDF)" type="file" multiple accept=".pdf" onChange={(e) => handleFileChange(e, setFinancialFiles, 3)} required />
             <FileInput icon={<FaFilePdf />} label="Referencias (hasta 3 archivos PDF)" type="file" multiple accept=".pdf" onChange={(e) => handleFileChange(e, setReferenceFiles, 3)} />
-            <FileInput icon={<FaFileCsv />} label="Archivo Financiero (hasta 3 PDF o CSV)" type="file" multiple accept=".pdf,.csv" onChange={(e) => handleFileChange(e, setFinancialFiles, 3)} required />
 
-            <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 transition duration-300 disabled:opacity-50">Enviar para Análisis</button>
+            <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 transition duration-300 disabled:opacity-50">Enviar para análisis</button>
         </form>
       </div>
     </div>

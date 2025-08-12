@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { getScoringResult } from '../services/scoringAPI';
+import { getScoringResult, getSimulationResult } from '../services/scoringAPI';
 import { Radar } from 'react-chartjs-2';
 import { FaInfoCircle } from 'react-icons/fa';
+import NoDataPopup from '../components/NoDataPopup';
 
 // Re-importing ChartJS elements for the radar chart
 import { Chart as ChartJS, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from 'chart.js';
@@ -48,57 +49,100 @@ const Simulation = () => {
   const [simulatedValues, setSimulatedValues] = useState({ ingresos: 50, reputacion: 75, pago: 90 });
   const [predictionData, setPredictionData] = useState(null);
   const [currentRisk, setCurrentRisk] = useState('Medio');
+  const [simulationHistory, setSimulationHistory] = useState([]);
+  const [simulationCount, setSimulationCount] = useState(0);
+  const [companyName, setCompanyName] = useState('');
+  const [noData, setNoData] = useState(false);
+
+  const historyColors = [
+    { backgroundColor: 'rgba(255, 99, 132, 0.2)', borderColor: 'rgba(255, 99, 132, 1)' },
+    { backgroundColor: 'rgba(75, 192, 192, 0.2)', borderColor: 'rgba(75, 192, 192, 1)' },
+    { backgroundColor: 'rgba(255, 205, 86, 0.2)', borderColor: 'rgba(255, 205, 86, 1)' },
+  ];
 
   useEffect(() => {
-    const data = getScoringResult();
-    setInitialData(data);
-    // Set initial chart data
-    setPredictionData({
-        labels: data.riskFactors.map(f => f.subject),
-        datasets: [
-            {
-                label: 'Predicción Actual',
-                data: data.riskFactors.map(f => f.A),
-                backgroundColor: 'rgba(42, 71, 91, 0.2)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 2,
-            }
-        ]
-    });
+    const statsString = sessionStorage.getItem('initialStatistics');
+    const name = sessionStorage.getItem('companyName');
+    if (name) {
+      setCompanyName(name);
+    }
+    
+    if (statsString) {
+      const initialStats = JSON.parse(statsString);
+      
+      const riskFactors = Object.keys(initialStats).map(key => ({
+        subject: key.charAt(0).toUpperCase() + key.slice(1),
+        A: initialStats[key].value,
+        fullMark: initialStats[key].max,
+      }));
+
+      const data = {
+          riskFactors: riskFactors,
+      };
+
+      setInitialData(data);
+      setPredictionData({
+          labels: data.riskFactors.map(f => f.subject),
+          datasets: [
+              {
+                  label: 'Predicción Actual',
+                  data: data.riskFactors.map(f => f.A),
+                  backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                  borderColor: 'rgba(54, 162, 235, 1)',
+                  borderWidth: 2,
+              }
+          ]
+      });
+    } else {
+      setNoData(true);
+    }
   }, []);
 
   const handleSliderChange = (key, value) => {
     setSimulatedValues(prev => ({ ...prev, [key]: Number(value) }));
   };
 
-  const handlePrediction = () => {
-    const { ingresos, reputacion, pago } = simulatedValues;
-    
-    // Dummy logic for risk calculation
-    let newRisk = 'Alto';
-    if (ingresos > 70 && reputacion > 80 && pago > 95) newRisk = 'Bajo';
-    else if (ingresos > 40 || reputacion > 60) newRisk = 'Medio';
-    setCurrentRisk(newRisk);
+  const handlePrediction = async () => {
+    try {
+      const result = await getSimulationResult(simulatedValues);
+      const { estadisticas, nivel_riesgo } = result;
 
-    // Dummy logic to generate new chart data
-    const newChartData = initialData.riskFactors.map(factor => {
-        const baseValue = factor.A;
-        const boost = (ingresos / 100) + (reputacion / 100) + (pago / 100);
-        return Math.min(150, baseValue * boost * 0.5);
-    });
+      const newCount = simulationCount + 1;
+      setSimulationCount(newCount);
+      setCurrentRisk(nivel_riesgo);
 
-    setPredictionData({
-        ...predictionData,
-        datasets: [
-            {
-                ...predictionData.datasets[0],
-                data: newChartData,
-                label: 'Nueva Predicción',
-                backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                borderColor: 'rgba(255, 99, 132, 1)',
-            }
-        ]
-    });
+      const newChartData = initialData.riskFactors.map(factor => {
+        const key = factor.subject.toLowerCase().replace(/\s/g, '');
+        if (estadisticas[key]) {
+          return estadisticas[key].value;
+        }
+        return factor.A; // Keep old value if not in simulation response
+      });
+
+      const newHistoryEntry = {
+        data: newChartData,
+        label: `Simulación ${newCount}`,
+      };
+
+      const updatedHistory = [newHistoryEntry, ...simulationHistory].slice(0, 3);
+      setSimulationHistory(updatedHistory);
+
+      const historyDatasets = updatedHistory.map((entry, index) => ({
+        ...entry,
+        backgroundColor: historyColors[index].backgroundColor,
+        borderColor: historyColors[index].borderColor,
+        borderWidth: 2,
+      }));
+
+      setPredictionData(prevData => ({
+        ...prevData,
+        datasets: [prevData.datasets[0], ...historyDatasets],
+      }));
+
+    } catch (error) {
+      console.error("Failed to get simulation:", error);
+      // Here you could set an error state and display a message to the user
+    }
   };
 
   const getRiskColor = (risk) => {
@@ -125,6 +169,10 @@ const Simulation = () => {
     },
   };
 
+  if (noData) {
+    return <NoDataPopup message="No se han cargado datos para simulación. Por favor, sube un archivo para comenzar." to="/upload-request" buttonText="Ir a Nueva evaluación" />;
+  }
+
   if (!initialData || !predictionData) {
     return <div className="text-center text-white">Cargando datos de simulación...</div>;
   }
@@ -133,12 +181,12 @@ const Simulation = () => {
     <div className="bg-gray-900 text-white min-h-screen p-8">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="md:col-span-2">
-          <h1 className="text-4xl font-bold">Nombre de la empresa</h1>
-          <p className="text-xl text-gray-400">Simulador de Escenarios de Riesgo</p>
+          <h1 className="text-4xl font-bold">{companyName || "<Empresa>"} </h1>
+          <p className="text-xl text-gray-400">Simulador de escenarios de riesgo</p>
         </div>
         <div className="flex items-center justify-end">
           <div className={`px-4 py-2 rounded-lg font-bold text-lg ${getRiskColor(currentRisk)}`}>
-            Riesgo Simulado: {currentRisk}
+            Riesgo simulado: {currentRisk}
           </div>
         </div>
       </div>
@@ -179,4 +227,3 @@ const Simulation = () => {
 };
 
 export default Simulation;
-

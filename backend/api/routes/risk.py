@@ -371,11 +371,13 @@ async def evaluate_risk_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/simulate", summary="Simulación de score con 3 parámetros")
-async def simulate_score_endpoint(
-    ingresos: float = Form(..., description="Ingresos anuales en USD"),
-    reputacion: float = Form(..., description="Reputación digital en % (0-100)"),
-    pago: float = Form(..., description="Pagos a tiempo en % (0-100)")
-):
+async def simulate_score_endpoint(data: dict):
+    ingresos = data.get("ingresos")
+    reputacion = data.get("reputacion")
+    pago = data.get("pago")
+    
+    if not all([ingresos is not None, reputacion is not None, pago is not None]):
+        raise HTTPException(status_code=400, detail="Se requieren los campos: ingresos, reputacion y pago")
     try:
         # --- 1) Normalizaciones a las que ya venías llegando ---
         digital_rating = min(5.0, max(0.0, reputacion * 5.0 / 100.0))

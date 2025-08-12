@@ -1,6 +1,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-import re 
+import re
+import json 
 
 from services.document_processor import pdf_to_rich_text
 from services.financial_extractor import extract_financial_metrics_from_text
@@ -137,6 +138,22 @@ async def evaluate_risk_endpoint(
     collection: str = Form("empresas", description="Nombre base de la colección"),
     k: int = Form(3, description="Top‑k para retrieval")
 ):
+    print(json.dumps({
+        "razon_social": razon_social,
+        "nombre_comercial": nombre_comercial,
+        "pais": pais,
+        "ciudad": ciudad,
+        "direccion": direccion,
+        "instagram_url": instagram_url,
+        "facebook_url": facebook_url,
+        "tiktok_url": tiktok_url,
+        "kb_ingest": kb_ingest,
+        "use_kb": use_kb,
+        "collection": collection,
+        "k": k,
+        "referencias_files": [f.filename for f in referencias_files] if referencias_files else [],
+        "financieros_files": [f.filename for f in financieros_files] if financieros_files else []
+    }, indent=2, ensure_ascii=False))
     try:
         # Optimización: Procesamiento paralelo de señales digitales y archivos financieros
         # 1) Recolectar señales digitales (reputación)
@@ -325,8 +342,10 @@ async def evaluate_risk_endpoint(
             },
             "estadisticas": estadisticas,
             "riesgo_interno": scoring.get("riesgo"),
-            "top_5": llm_out.get("top_5", []),                 # ← solo del LLM
-            "resumen": llm_out.get("resumen", {                # ← solo del LLM
+            "factores_clave_riesgo":{
+                "top_5": llm_out.get("top_5", []),               
+            },
+            "resumen": llm_out.get("resumen", {
                 "parrafo_1": "", "parrafo_2": ""
             })
         }
